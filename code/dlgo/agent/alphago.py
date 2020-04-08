@@ -3,6 +3,7 @@ import numpy as np
 from dlgo.agent.base import Agent
 from dlgo.goboard_fast import Move
 from dlgo import kerasutil
+from dlgo import scoring
 import operator
 # end::alphago_imports[]
 
@@ -39,7 +40,7 @@ class AlphaGoNode:
     def expand_children(self, moves, probabilities):
         for move, prob in zip(moves, probabilities):
             if move not in self.children:
-                self.children[move] = AlphaGoNode(probability=prob)
+                self.children[move] = AlphaGoNode(parent=self, probability=prob)
 # end::expand_children[]
 
 # tag::update_values[]
@@ -140,23 +141,25 @@ class AlphaGoMCTS(Agent):
 
 # tag::alphago_policy_rollout[]
     def policy_rollout(self, game_state):
+        my_side = game_state.next_player
         for step in range(self.rollout_limit):
             if game_state.is_over():
                 break
             move_probabilities = self.rollout_policy.predict(game_state)
             encoder = self.rollout_policy.encoder
-            valid_moves = [m for idx, m in enumerate(move_probabilities) 
-                           if Move(encoder.decode_point_index(idx)) in game_state.legal_moves()]
-            max_index, max_value = max(enumerate(valid_moves), key=operator.itemgetter(1))
-            max_point = encoder.decode_point_index(max_index)
-            greedy_move = Move(max_point)
-            if greedy_move in game_state.legal_moves():
-                game_state = game_state.apply_move(greedy_move)
+            for idx in np.argsort(move_probabilities)[::-1]:
+                max_point = encoder.decode_point_index(idx)
+                greedy_move = Move(max_point)
+                if greedy_move in game_state.legal_moves():
+                    game_state = game_state.apply_move(greedy_move)
+                    break
 
-        next_player = game_state.next_player
-        winner = game_state.winner()
+        moves_cnt = len(game_state.previous_states)
+        game_result = scoring.compute_game_result(game_state)
+        
+        winner = game_result.winner
         if winner is not None:
-            return 1 if winner == next_player else -1
+            return 1 if winner == my_side else -1
         else:
             return 0
 # end::alphago_policy_rollout[]
